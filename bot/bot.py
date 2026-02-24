@@ -95,11 +95,21 @@ class Bot:
         /,
         prefix: str = "!",
         command_cooldown: int = 6,
+        loop: asyncio.AbstractEventLoop | None = None,
     ):
         self.channel = channel
         self.process = process
         self.command_cooldown = command_cooldown
-        self.loop: asyncio.AbstractEventLoop = None
+
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+        self.loop = loop
+
         self.ahk = AsyncAHK()
         self.chat = Chat(FakeTwitch())
         self.paused = asyncio.Event()
@@ -119,11 +129,6 @@ class Bot:
         self.queues: dict[str, asyncio.Queue] = {}
 
     def run(self):
-        try:
-            self.loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
         self.loop.run_until_complete(self.start())
         self.loop.run_forever()
 
