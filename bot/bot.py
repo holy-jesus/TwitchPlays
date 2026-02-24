@@ -1,3 +1,4 @@
+from twitchAPI.chat import ChatMessage
 import asyncio
 import functools
 from typing import Callable
@@ -23,7 +24,7 @@ class FakeTwitch:
     def has_required_auth(*args, **kwargs):
         return True
 
-    async def get_users(*args, **kwargs):
+    async def get_users():
         while True:
             yield FakeUser
 
@@ -94,12 +95,12 @@ class Bot:
         process: str,
         /,
         prefix: str = "!",
-        command_cooldown: int = 6,
+        cooldown: int = 6,
         loop: asyncio.AbstractEventLoop | None = None,
     ):
         self.channel = channel
         self.process = process
-        self.command_cooldown = command_cooldown
+        self.cooldown = cooldown
 
         if loop is None:
             try:
@@ -111,7 +112,7 @@ class Bot:
         self.loop = loop
 
         self.ahk = AsyncAHK()
-        self.chat = Chat(FakeTwitch())
+        self.chat = Chat(FakeTwitch)
         self.paused = asyncio.Event()
 
         self.ahk.add_hotkey(Keys.SHIFT + Keys.BACKSPACE, self.stop)
@@ -125,20 +126,24 @@ class Bot:
         self.chat.register_command_middleware(PausedMiddleware(self.paused))
 
         self.chat.register_event(ChatEvent.READY, self.__on_ready)
+        self.chat.register_event(ChatEvent.JOINED, self.__on_joined)
+        self.chat.register_event(ChatEvent.MESSAGE, self.__on_message)
 
         self.queues: dict[str, asyncio.Queue] = {}
 
     def run(self):
-        self.loop.run_until_complete(self.start())
-        self.loop.run_forever()
+        try:
+            self.loop.run_until_complete(self.start())
+            self.loop.run_forever()
+        except KeyboardInterrupt:
+            self.loop.run_until_complete(self.stop())
 
     async def start(self):
         await self.chat  # bruh
-        self.loop = asyncio.get_running_loop()
-        await self.chat.start()
+        self.chat.start()
 
     async def stop(self):
-        await self.chat.stop()
+        self.chat.stop()
         self.loop.stop()
 
     async def toggle_pause(self):
@@ -257,30 +262,42 @@ class Bot:
             commands, functools.partial(self.__mouse_button, "right"), cooldown
         )
 
-    async def __on_ready(self, event: EventData):
-        print(f"Logged in as {event.user.login}")
-        await self.chat.join_room(self.channel)
-
     async def __mouse_button_loop(self, button: str):
         queue = self.queues[button]
+        is_held = False
         while True:
             try:
                 await asyncio.wait_for(queue.get(), 0.4)
-                await self.ahk.click(button=button, direction="D")
+                if not is_held:
+                    await self.ahk.click(button=button, direction="D")
+                    is_held = True
             except asyncio.TimeoutError:
-                await self.ahk.click(button=button, direction="U")
+                if is_held:
+                    await self.ahk.click(button=button, direction="U")
+                    is_held = False
             except asyncio.CancelledError:
-                await self.ahk.click(button=button, direction="U")
+                if is_held:
+                    await self.ahk.click(button=button, direction="U")
                 break
 
-    async def __mouse_button(self, button: str):
-        queue = self.queues[button]
-        if queue.empty():
-            queue.put_nowait(True)
-        else:
-            queue.get_nowait()
+    # twitchAPI callbacks
 
-    async def __press_key(self, key: Key | str, seconds: int | float = 0):
+    async def __on_ready(self, event: EventData):
+        print(f"Logged in as {self.chat.username}")
+        await self.chat.join_room(self.channel)
+
+    async def __on_joined(self, event: EventData):
+        print(f"Joined {self.channel}")
+
+    async def __on_message(self, message: ChatMessage):
+        print(f"{message.user.name}: {message.text}")
+
+    async def __mouse_button(self, button: str, _: ChatCommand):
+        self.queues[button].put_nowait(True)
+
+    async def __press_key(
+        self, key: Key | str, seconds: int | float | None, _: ChatCommand
+    ):
         if not seconds:
             await self.ahk.key_press(key, release=True, blocking=False)
         else:
@@ -299,9 +316,9 @@ class Bot:
             commands = [commands]
 
         middlewares = []
-        if cooldown or (cooldown is None and self.command_cooldown):
+        if cooldown or (cooldown is None and self.cooldown):
             middlewares.append(
-                ChannelUserCommandCooldown(cooldown or self.command_cooldown)
+                ChannelUserCommandCooldown(cooldown or self.cooldown)
             )
 
         for command in commands:
