@@ -23,7 +23,7 @@ class FakeTwitch:
     def has_required_auth(*args, **kwargs):
         return True
 
-    async def get_users():
+    async def get_users(*args, **kwargs):
         while True:
             yield FakeUser
 
