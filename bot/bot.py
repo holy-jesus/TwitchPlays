@@ -42,6 +42,9 @@ class ActiveWindowMiddleware(BaseCommandMiddleware):
             return True
         return False
 
+    async def was_executed(self, cmd: ChatCommand):
+        pass
+
 
 class PausedMiddleware(BaseCommandMiddleware):
     def __init__(self, paused: asyncio.Event):
@@ -52,10 +55,16 @@ class PausedMiddleware(BaseCommandMiddleware):
             return False
         return True
 
+    async def was_executed(self, cmd: ChatCommand):
+        pass
+
 
 class OnlyModsMiddleware(BaseCommandMiddleware):
     async def can_execute(self, command: ChatCommand):
         return command.room.name == command.user.name or command.user.mod
+
+    async def was_executed(self, cmd: ChatCommand):
+        pass
 
 
 class Keys(KEYS):
