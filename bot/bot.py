@@ -133,6 +133,7 @@ class Bot:
         self.loop.run_forever()
 
     async def start(self):
+        await self.chat  # bruh
         self.loop = asyncio.get_running_loop()
         await self.chat.start()
 
