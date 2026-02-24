@@ -35,6 +35,8 @@ class ActiveWindowMiddleware(BaseCommandMiddleware):
         self.ahk = ahk
 
     async def can_execute(self, cmd: ChatCommand):
+        if self.process_name == "*":
+            return True
         active_window = await self.ahk.get_active_window()
         if (
             active_window
@@ -205,27 +207,20 @@ class Bot:
         cooldown: int | float | None = None,
     ):
         if direction == Direction.UP:
+            x = 0
             y = -amount
-            x = 0
         elif direction == Direction.DOWN:
-            y = amount
             x = 0
+            y = amount
         elif direction == Direction.LEFT:
-            y = 0
             x = -amount
-        elif direction == Direction.RIGHT:
             y = 0
+        elif direction == Direction.RIGHT:
             x = amount
+            y = 0
         self.__register_command(
             commands,
-            functools.partial(
-                self.ahk.mouse_move,
-                x=x,
-                y=y,
-                speed=speed,
-                blocking=False,
-                relative=True,
-            ),
+            functools.partial(self.__move_mouse, x, y, speed),
             cooldown,
         )
 
@@ -295,6 +290,11 @@ class Bot:
     async def __mouse_button(self, button: str, _: ChatCommand):
         self.queues[button].put_nowait(True)
 
+    async def __move_mouse(self, x: int, y: int, speed: int, _: ChatCommand):
+        await self.ahk.mouse_move(
+            x=x, y=y, speed=speed, blocking=False, relative=True, coord_mode="Relative"
+        )
+
     async def __press_key(
         self, key: Key | str, seconds: int | float | None, _: ChatCommand
     ):
@@ -317,9 +317,7 @@ class Bot:
 
         middlewares = []
         if cooldown or (cooldown is None and self.cooldown):
-            middlewares.append(
-                ChannelUserCommandCooldown(cooldown or self.cooldown)
-            )
+            middlewares.append(ChannelUserCommandCooldown(cooldown or self.cooldown))
 
         for command in commands:
             registered = self.chat.register_command(

@@ -1,2 +1,4 @@
 class Toggler:
-    pass
+
+    async def __loop(self):
+        pass
