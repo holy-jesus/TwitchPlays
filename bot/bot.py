@@ -138,7 +138,9 @@ class Bot:
     async def toggle_pause(self):
         self.paused.set() if self.paused.is_set() else self.paused.clear()
 
-    def register_numbers(self, /, seconds: int = 0, cooldown: int | float = 0):
+    def register_numbers(
+        self, /, seconds: int = 0, cooldown: int | float | None = None
+    ):
         """
         Registers commands for numbers 0-9
         !0 - presses 0
@@ -160,7 +162,7 @@ class Bot:
         a: list[str] = ["a"],
         s: list[str] = ["s"],
         d: list[str] = ["d"],
-        cooldown: int | float = 0,
+        cooldown: int | float | None = None,
     ):
         self.__register_command(
             w,
@@ -184,7 +186,12 @@ class Bot:
         )
 
     def move_mouse(
-        self, commands: list[str], direction, amount: int = 25, speed: int = 10
+        self,
+        commands: list[str],
+        direction,
+        amount: int = 25,
+        speed: int = 10,
+        cooldown: int | float | None = None,
     ):
         if direction == Direction.UP:
             y = -amount
@@ -208,24 +215,40 @@ class Bot:
                 blocking=False,
                 relative=True,
             ),
+            cooldown,
         )
 
-    def press_key(self, commands: list[str], key: Key | str, seconds: int | float = 0):
+    def press_key(
+        self,
+        commands: list[str],
+        key: Key | str,
+        seconds: int | float = 0,
+        cooldown: int | float | None = None,
+    ):
         self.__register_command(
-            commands, functools.partial(self.__press_key, key, seconds)
+            commands, functools.partial(self.__press_key, key, seconds), cooldown
         )
 
-    def left_mouse_button(self, commands: list[str]):
+    def left_mouse_button(
+        self,
+        commands: list[str],
+        cooldown: int | float | None = None,
+    ):
+        # TODO тут пока что cooldown ломает всё немного совсем чутьчуть
         self.queues["left"] = asyncio.Queue()
         self.__register_command(
-            commands, functools.partial(self.__mouse_button, "left")
+            commands, functools.partial(self.__mouse_button, "left"), cooldown
         )
 
-    def right_mouse_button(self, commands: list[str]):
+    def right_mouse_button(
+        self,
+        commands: list[str],
+        cooldown: int | float | None = None,
+    ):
         self.queues["right"] = asyncio.Queue()
         self.loop.create_task(self.__mouse_button_loop("right"))
         self.__register_command(
-            commands, functools.partial(self.__mouse_button, "right")
+            commands, functools.partial(self.__mouse_button, "right"), cooldown
         )
 
     async def __on_ready(self, event: EventData):
