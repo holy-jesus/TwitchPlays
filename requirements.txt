@@ -1,0 +1,2 @@
+twitchAPI~=4.5.0
+ahk[binary]~=1.8.4

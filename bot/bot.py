@@ -1,0 +1,274 @@
+import asyncio
+import functools
+from typing import Callable
+
+from aiohttp.helpers import sentinel
+from ahk import AsyncAHK
+from ahk.keys import Key, KEYS
+from twitchAPI.type import ChatEvent
+from twitchAPI.chat import Chat, EventData, ChatCommand
+from twitchAPI.chat.middleware import ChannelUserCommandCooldown, BaseCommandMiddleware
+
+
+class FakeUser:
+    login = "justinfan1337"
+
+
+class FakeTwitch:
+    session_timeout = sentinel
+
+    async def get_refreshed_user_auth_token():
+        return "kappa"
+
+    def has_required_auth(*args, **kwargs):
+        return True
+
+    async def get_users():
+        while True:
+            yield FakeUser
+
+
+class ActiveWindowMiddleware(BaseCommandMiddleware):
+    def __init__(self, ahk: AsyncAHK, process_name: str):
+        self.process_name = process_name
+        self.ahk = ahk
+
+    async def can_execute(self, cmd: ChatCommand):
+        active_window = await self.ahk.get_active_window()
+        if (
+            active_window
+            and await active_window.get_process_name() == self.process_name
+        ):
+            return True
+        return False
+
+
+class PausedMiddleware(BaseCommandMiddleware):
+    def __init__(self, paused: asyncio.Event):
+        self.paused = paused
+
+    async def can_execute(self, cmd: ChatCommand):
+        if self.paused.is_set():
+            return False
+        return True
+
+
+class OnlyModsMiddleware(BaseCommandMiddleware):
+    async def can_execute(self, command: ChatCommand):
+        return command.room.name == command.user.name or command.user.mod
+
+
+class Keys(KEYS):
+    LMB = "left"
+    RMB = "right"
+    LEFT_MOUSE_BUTTON = LMB
+    RIGHT_MOUSE_BUTTON = RMB
+    LeftMouseButton = LMB
+    RightMouseButton = RMB
+
+
+class Direction:
+    UP = "up"
+    Up = UP
+    DOWN = "down"
+    Down = DOWN
+    LEFT = "left"
+    Left = LEFT
+    RIGHT = "right"
+    Right = RIGHT
+
+
+class Bot:
+    def __init__(
+        self,
+        channel: str,
+        process: str,
+        /,
+        prefix: str = "!",
+        command_cooldown: int = 6,
+    ):
+        self.channel = channel
+        self.process = process
+        self.command_cooldown = command_cooldown
+        self.loop: asyncio.AbstractEventLoop = None
+        self.ahk = AsyncAHK()
+        self.chat = Chat(FakeTwitch())
+        self.paused = asyncio.Event()
+
+        self.ahk.add_hotkey(Keys.SHIFT + Keys.BACKSPACE, self.stop)
+        self.ahk.add_hotkey("F12", self.toggle_pause)
+
+        self.chat.set_prefix(prefix)
+
+        self.chat.register_command_middleware(
+            ActiveWindowMiddleware(self.ahk, self.process)
+        )
+        self.chat.register_command_middleware(PausedMiddleware(self.paused))
+
+        self.chat.register_event(ChatEvent.READY, self.__on_ready)
+
+        self.queues: dict[str, asyncio.Queue] = {}
+
+    def run(self):
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.start())
+        self.loop.run_forever()
+
+    async def start(self):
+        self.loop = asyncio.get_running_loop()
+        await self.chat.start()
+
+    async def stop(self):
+        await self.chat.stop()
+        self.loop.stop()
+
+    async def toggle_pause(self):
+        self.paused.set() if self.paused.is_set() else self.paused.clear()
+
+    def register_numbers(self, /, seconds: int = 0, cooldown: int | float = 0):
+        """
+        Registers commands for numbers 0-9
+        !0 - presses 0
+        !1 - presses 1
+        ...etc
+        """
+        for number in range(0, 10):
+            self.__register_command(
+                str(number),
+                functools.partial(self.__press_key, str(number), seconds),
+                cooldown,
+            )
+
+    def register_wasd(
+        self,
+        seconds: int | float = 0.3,
+        /,
+        w: list[str] = ["w"],
+        a: list[str] = ["a"],
+        s: list[str] = ["s"],
+        d: list[str] = ["d"],
+        cooldown: int | float = 0,
+    ):
+        self.__register_command(
+            w,
+            functools.partial(self.__press_key, "w", seconds),
+            cooldown,
+        )
+        self.__register_command(
+            a,
+            functools.partial(self.__press_key, "a", seconds),
+            cooldown,
+        )
+        self.__register_command(
+            s,
+            functools.partial(self.__press_key, "s", seconds),
+            cooldown,
+        )
+        self.__register_command(
+            d,
+            functools.partial(self.__press_key, "d", seconds),
+            cooldown,
+        )
+
+    def move_mouse(
+        self, commands: list[str], direction, amount: int = 25, speed: int = 10
+    ):
+        if direction == Direction.UP:
+            y = -amount
+            x = 0
+        elif direction == Direction.DOWN:
+            y = amount
+            x = 0
+        elif direction == Direction.LEFT:
+            y = 0
+            x = -amount
+        elif direction == Direction.RIGHT:
+            y = 0
+            x = amount
+        self.__register_command(
+            commands,
+            functools.partial(
+                self.ahk.mouse_move,
+                x=x,
+                y=y,
+                speed=speed,
+                blocking=False,
+                relative=True,
+            ),
+        )
+
+    def press_key(self, commands: list[str], key: Key | str, seconds: int | float = 0):
+        self.__register_command(
+            commands, functools.partial(self.__press_key, key, seconds)
+        )
+
+    def left_mouse_button(self, commands: list[str]):
+        self.queues["left"] = asyncio.Queue()
+        self.__register_command(
+            commands, functools.partial(self.__mouse_button, "left")
+        )
+
+    def right_mouse_button(self, commands: list[str]):
+        self.queues["right"] = asyncio.Queue()
+        self.loop.create_task(self.__mouse_button_loop("right"))
+        self.__register_command(
+            commands, functools.partial(self.__mouse_button, "right")
+        )
+
+    async def __on_ready(self, event: EventData):
+        print(f"Logged in as {event.user.login}")
+        await self.chat.join_room(self.channel)
+
+    async def __mouse_button_loop(self, button: str):
+        queue = self.queues[button]
+        while True:
+            try:
+                await asyncio.wait_for(queue.get(), 0.4)
+                await self.ahk.click(button=button, direction="D")
+            except asyncio.TimeoutError:
+                await self.ahk.click(button=button, direction="U")
+            except asyncio.CancelledError:
+                await self.ahk.click(button=button, direction="U")
+                break
+
+    async def __mouse_button(self, button: str):
+        queue = self.queues[button]
+        if queue.empty():
+            queue.put_nowait(True)
+        else:
+            queue.get_nowait()
+
+    async def __press_key(self, key: Key | str, seconds: int | float = 0):
+        if not seconds:
+            await self.ahk.key_press(key, release=True, blocking=False)
+        else:
+            await self.ahk.key_down(key)
+            await asyncio.sleep(seconds)
+            await self.ahk.key_up(key)
+
+    def __register_command(
+        self, commands: str | list[str], func: Callable, cooldown: int | float | None
+    ):
+        """
+        0 to disable cooldown
+        None to use default
+        """
+        if isinstance(commands, str):
+            commands = [commands]
+
+        middlewares = []
+        if cooldown or (cooldown is None and self.command_cooldown):
+            middlewares.append(
+                ChannelUserCommandCooldown(cooldown or self.command_cooldown)
+            )
+
+        for command in commands:
+            registered = self.chat.register_command(
+                command, func, command_middleware=middlewares
+            )
+            if not registered:
+                raise ValueError(f"Command {command} is already registered")
