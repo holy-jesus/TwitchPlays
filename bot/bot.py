@@ -123,7 +123,7 @@ class Bot:
             self.loop.run_until_complete(self.stop())
 
     async def start(self):
-        self.controller.start()
+        await self.controller.start()
         await self.chat  # bruh
         self.chat.start()
 
