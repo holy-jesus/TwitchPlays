@@ -137,6 +137,8 @@ class Bot:
             self.loop.run_until_complete(self.stop())
         except asyncio.CancelledError:
             self.loop.run_until_complete(self.stop())
+        except Exception:
+            self.loop.run_until_complete(self.stop())
 
     async def start(self):
         self.controller.start()

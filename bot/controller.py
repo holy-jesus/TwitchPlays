@@ -58,12 +58,16 @@ class Controller:
         self.loop.create_task(self.__mouse_movement_loop())
 
     def stop(self):
-        print("STOP")
+        print("stop")
         self.loop.stop()
 
     def toggle_pause(self):
-        print("PAUSE")
-        self.paused.set() if self.paused.is_set() else self.paused.clear()
+        if self.paused.is_set():
+            self.paused.clear()
+            print("unpaused")
+        else:
+            self.paused.set()
+            print("paused")
 
     async def move_mouse(self, x: int, y: int, speed: int):
         await self.ahk.mouse_move(
