@@ -2,6 +2,7 @@ from twitchAPI.chat import ChatMessage
 import asyncio
 import functools
 from typing import Callable
+import warnings
 
 from aiohttp.helpers import sentinel
 from ahk import AsyncAHK
@@ -80,7 +81,7 @@ class Bot:
         /,
         mouse_speed: int = 15,
         prefix: str = "!",
-        cooldown: int = 6,
+        cooldown: int = 0,
         loop: asyncio.AbstractEventLoop | None = None,
     ):
         self.channel = channel
@@ -130,11 +131,8 @@ class Bot:
         self.chat.stop()
         self.loop.stop()
 
-    async def toggle_pause(self):
-        self.paused.set() if self.paused.is_set() else self.paused.clear()
-
     def register_numbers(
-        self, /, seconds: int = 0, cooldown: int | float | None = None
+        self, duration: int | float = 0, /, cooldown: int | float | None = None
     ):
         """
         Registers commands for numbers 0-9
@@ -145,7 +143,21 @@ class Bot:
         for number in range(0, 10):
             self.__register_command(
                 str(number),
-                functools.partial(self.__press_key, str(number), seconds),
+                functools.partial(self.__press_key, str(number), duration),
+                cooldown,
+            )
+
+    def register_all_keys(
+        self,
+        duration: int | float = 0.3,
+        /,
+        cooldown: int | float | None = None,
+        **kwargs: dict[str, list[str]],
+    ):
+        for key, commands in kwargs.items():
+            self.__register_command(
+                commands,
+                functools.partial(self.__press_key, key, duration),
                 cooldown,
             )
 
@@ -153,11 +165,11 @@ class Bot:
         self,
         duration: int | float = 0.3,
         /,
+        cooldown: int | float | None = None,
         w: list[str] = ["w"],
         a: list[str] = ["a"],
         s: list[str] = ["s"],
         d: list[str] = ["d"],
-        cooldown: int | float | None = None,
     ):
         self.__register_command(
             w,
@@ -182,9 +194,10 @@ class Bot:
 
     def move_mouse(
         self,
-        commands: list[str],
+        commands: str | list[str],
         direction: Direction,
-        amount: int = 25,
+        /,
+        amount: int = 100,
         cooldown: int | float | None = None,
     ):
         if direction == Direction.UP:
@@ -207,50 +220,51 @@ class Bot:
 
     def press_key(
         self,
-        commands: list[str],
+        commands: str | list[str],
         key: Key | str,
-        seconds: int | float = 0,
+        duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
         self.__register_command(
-            commands, functools.partial(self.__press_key, key, seconds), cooldown
+            commands, functools.partial(self.__press_key, key, duration), cooldown
         )
 
     def left_mouse_button(
         self,
-        commands: list[str],
+        commands: str | list[str],
+        duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
         self.__register_command(
-            commands, functools.partial(self.__press_key, Keys.LMB), cooldown
+            commands, functools.partial(self.__press_key, Keys.LMB, duration), cooldown
         )
 
     def right_mouse_button(
         self,
-        commands: list[str],
+        commands: str | list[str],
+        duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
         self.__register_command(
-            commands, functools.partial(self.__press_key, Keys.RMB), cooldown
+            commands, functools.partial(self.__press_key, Keys.RMB, duration), cooldown
         )
 
-    async def __mouse_button_loop(self, button: str):
-        queue = self.queues[button]
-        is_held = False
-        while True:
-            try:
-                await asyncio.wait_for(queue.get(), 0.4)
-                if not is_held:
-                    await self.ahk.click(button=button, direction="D")
-                    is_held = True
-            except asyncio.TimeoutError:
-                if is_held:
-                    await self.ahk.click(button=button, direction="U")
-                    is_held = False
-            except asyncio.CancelledError:
-                if is_held:
-                    await self.ahk.click(button=button, direction="U")
-                break
+    def key_vote(
+        self,
+        commands: str | list[str],
+        key: str | Key,
+        required_votes: int,
+        time_window: int | float,
+        duration: int | float | None = None,
+        cooldown: int | float | None = None,
+    ):
+        self.__register_command(
+            commands,
+            functools.partial(
+                self.__key_vote, key, required_votes, time_window, duration
+            ),
+            cooldown,
+        )
 
     # twitchAPI callbacks
 
@@ -264,10 +278,20 @@ class Bot:
     async def __on_message(self, message: ChatMessage):
         print(f"{message.user.name}: {message.text}")
 
+    async def __key_vote(
+        self,
+        key: str | Key,
+        required_votes: int,
+        time_window: int | float,
+        duration: int | float | None,
+        _: ChatCommand,
+    ):
+        self.controller.vote_for_key(key, required_votes, time_window, duration)
+
     async def __press_key(
         self, key: str | Key, duration: int | float | None, _: ChatCommand
     ):
-        self.controller.press_and_extend_key(key, duration)
+        self.controller.press_key(key, duration)
 
     async def __move_mouse(self, x: int, y: int, _: ChatCommand):
         self.controller.add_mouse_movement(x, y)
@@ -291,4 +315,4 @@ class Bot:
                 command, func, command_middleware=middlewares
             )
             if not registered:
-                raise ValueError(f"Command {command} is already registered")
+                warnings.warn(f"Command {command} is already registered")

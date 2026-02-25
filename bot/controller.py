@@ -1,6 +1,7 @@
 import asyncio
 import time
 import math
+from collections import deque
 
 from ahk import AsyncAHK
 from ahk.keys import KEYS, Key
@@ -52,6 +53,8 @@ class Controller:
         self.pending_x = 0.0
         self.pending_y = 0.0
 
+        self.consensus_trackers: dict[str, deque] = {}
+
     async def start(self):
         self.loop.create_task(self.__mouse_movement_loop())
 
@@ -72,7 +75,7 @@ class Controller:
             relative=True,
         )
 
-    def press_and_extend_key(self, key: str | Key, duration: int | float | None):
+    def press_key(self, key: str | Key, duration: int | float | None):
         if not duration:
             self.loop.create_task(self.__click_key(key))
             return
@@ -94,14 +97,55 @@ class Controller:
         self.pending_x += dx
         self.pending_y += dy
 
+    def vote_for_key(
+        self,
+        key: str | Key,
+        required_votes: int,
+        time_window: int | float,
+        duration: int | float | None,
+    ):
+        """
+        Добавляет голос за действие. Если голосов достаточно за указанное время — нажимает кнопку.
+
+        :param key: Кнопка для нажатия (например, "tab")
+        :param required_votes: Сколько команд нужно для срабатывания (например, 10)
+        :param time_window: За какое время (в секундах) (например, 5.0)
+        :param duration: Сколько держать кнопку (None или 0 = просто клик)
+        """
+        now = time.time()
+
+        if key not in self.consensus_trackers:
+            self.consensus_trackers[key] = deque()
+
+        tracker = self.consensus_trackers[key]
+
+        tracker.append(now)
+
+        while tracker and tracker[0] < now - time_window:
+            tracker.popleft()
+
+        print(f"Голоса за {key}: {len(tracker)} / {required_votes}")
+
+        if len(tracker) >= required_votes:
+            print(f"Консенсус достигнут! Выполняем {key}.")
+            tracker.clear()
+
+            self.press_key(key, duration)
+            return True
+
+        return False
+
     async def __click_key(self, key: str | Key):
         # Чтобы не отпускать зажатую клавишу
-        if not self.pressed[key]:
-            await self.ahk.key_press(key, release=True)
+        if not self.pressed.get(key, False):
+            if key in Keys._MOUSE_BUTTONS:
+                await self.ahk.click(button=key)
+            else:
+                await self.ahk.key_press(key, release=True)
 
     async def __key_release_loop(self, key: str | Key):
         if key in Keys._MOUSE_BUTTONS:
-            await self.ahk.mouse_click(button=key)
+            await self.ahk.click(button=key, direction="D")
         else:
             await self.ahk.key_down(key)
         self.pressed[key] = True
@@ -115,7 +159,11 @@ class Controller:
 
             await asyncio.sleep(remaining_time)
         print(f"Отпускаем {key}.")
-        await self.ahk.key_up(key)
+        if key in Keys._MOUSE_BUTTONS:
+            await self.ahk.click(button=key, direction="U")
+        else:
+            await self.ahk.key_up(key)
+        self.pressed[key] = False
 
         if key in self.key_end_times:
             del self.key_end_times[key]
