@@ -159,7 +159,7 @@ class Bot:
         ...etc
         """
         for number in range(0, 10):
-            self.__save_command(
+            self.__register_command(
                 str(number),
                 functools.partial(self.__press_key, str(number), duration),
                 cooldown,
@@ -171,8 +171,11 @@ class Bot:
         cooldown: int | float | None = None,
         **kwargs: dict[str, list[str]],
     ):
+        """
+        Надо вызывать в последную очередь, иначе ваши клавиши не зарегаются.
+        """
         for key, commands in kwargs.items():
-            self.__save_command(
+            self.__register_command(
                 commands,
                 functools.partial(self.__press_key, key, duration),
                 cooldown,
@@ -187,22 +190,22 @@ class Bot:
         s: list[str] = ["s"],
         d: list[str] = ["d"],
     ):
-        self.__save_command(
+        self.__register_command(
             w,
             functools.partial(self.__press_key, "w", duration),
             cooldown,
         )
-        self.__save_command(
+        self.__register_command(
             a,
             functools.partial(self.__press_key, "a", duration),
             cooldown,
         )
-        self.__save_command(
+        self.__register_command(
             s,
             functools.partial(self.__press_key, "s", duration),
             cooldown,
         )
-        self.__save_command(
+        self.__register_command(
             d,
             functools.partial(self.__press_key, "d", duration),
             cooldown,
@@ -227,7 +230,7 @@ class Bot:
         elif direction == Direction.RIGHT:
             x = amount
             y = 0
-        self.__save_command(
+        self.__register_command(
             commands,
             functools.partial(self.__move_mouse, x, y),
             cooldown,
@@ -240,7 +243,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__save_command(
+        self.__register_command(
             commands, functools.partial(self.__press_key, key, duration), cooldown
         )
 
@@ -250,7 +253,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__save_command(
+        self.__register_command(
             commands, functools.partial(self.__press_key, Keys.LMB, duration), cooldown
         )
 
@@ -260,7 +263,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__save_command(
+        self.__register_command(
             commands, functools.partial(self.__press_key, Keys.RMB, duration), cooldown
         )
 
@@ -273,7 +276,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__save_command(
+        self.__register_command(
             commands,
             functools.partial(
                 self.__key_vote, key, required_votes, time_window, duration
@@ -311,7 +314,7 @@ class Bot:
     async def __move_mouse(self, x: int, y: int, _: ChatCommand):
         self.controller.add_mouse_movement(x, y)
 
-    def __save_command(
+    def __register_command(
         self, commands: str | list[str], func: Callable, cooldown: int | float | None
     ):
         """

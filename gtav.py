@@ -1,24 +1,33 @@
 from bot import Bot, Keys, Direction, RUSSIAN_WASD, RUSSIAN_KEYBOARD
 
 
-bot = Bot("CHANNEL_NAME", "PlayGTAV.exe", mouse_speed=25)
+bot = Bot("CHANNEL_NAME", "GTA5.exe", mouse_speed=1)
 
-bot.register_wasd(0.7, cooldown=0.7, **RUSSIAN_WASD)
-bot.register_all_keys(cooldown=0.3, **RUSSIAN_KEYBOARD)
-bot.register_numbers(cooldown=0.3)
+bot.press_key(["q", "й"], "q", duration=0.0, cooldown=180)
 
-bot.move_mouse(["i", "ш"], direction=Direction.UP, amount=150)
-bot.move_mouse(["k", "л"], direction=Direction.DOWN, amount=150)
-bot.move_mouse(["j", "о"], direction=Direction.LEFT, amount=150)
-bot.move_mouse(["l", "д"], direction=Direction.RIGHT, amount=150)
+bot.register_wasd(duration=0.5, cooldown=0.5, **RUSSIAN_WASD)
+bot.register_numbers(duration=0.0, cooldown=0.3)
+
+bot.move_mouse(["i", "ш"], direction=Direction.UP, amount=15, cooldown=1)
+bot.move_mouse(["k", "л"], direction=Direction.DOWN, amount=15, cooldown=1)
+bot.move_mouse(["j", "о"], direction=Direction.LEFT, amount=15, cooldown=1)
+bot.move_mouse(["l", "д"], direction=Direction.RIGHT, amount=15, cooldown=1)
 
 bot.press_key(["g", "п"], Keys.SPACE, 0.3)
 bot.press_key(["e", "у"], "e", 0.3)
 
-bot.key_vote(["f", "а"], "f", 10, 10, 0.3, 10)
+bot.key_vote(
+    commands=["f", "а"],
+    key="f",
+    required_votes=25,
+    time_window=10,
+    duration=1,
+    cooldown=10,
+)
 
-bot.left_mouse_button(["x", "ч"], duration=0.3)
-bot.right_mouse_button(["c", "с"], duration=0.3)
+bot.left_mouse_button(["x", "ч"], duration=0.5, cooldown=0.5)
+bot.right_mouse_button(["c", "с"], duration=0.5, cooldown=0.5)
 
+bot.register_all_keys(duration=0.3, cooldown=0.3, **RUSSIAN_KEYBOARD)
 
 bot.run()
