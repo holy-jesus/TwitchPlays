@@ -10,7 +10,7 @@ from twitchAPI.type import ChatEvent
 from twitchAPI.chat import Chat, EventData, ChatCommand
 from twitchAPI.chat.middleware import ChannelUserCommandCooldown, BaseCommandMiddleware
 
-from controller import Controller, Direction, Keys
+from .controller import Controller, Direction, Keys
 
 
 class FakeUser:
@@ -104,7 +104,7 @@ class Bot:
         self.chat.set_prefix(prefix)
 
         self.chat.register_command_middleware(
-            ActiveWindowMiddleware(self.ahk, self.process)
+            ActiveWindowMiddleware(self.controller.ahk, self.process)
         )
         self.chat.register_command_middleware(PausedMiddleware(self.paused))
 
@@ -118,8 +118,11 @@ class Bot:
             self.loop.run_forever()
         except KeyboardInterrupt:
             self.loop.run_until_complete(self.stop())
+        except asyncio.CancelledError:
+            self.loop.run_until_complete(self.stop())
 
     async def start(self):
+        self.controller.start()
         await self.chat  # bruh
         self.chat.start()
 
@@ -148,7 +151,7 @@ class Bot:
 
     def register_wasd(
         self,
-        seconds: int | float = 0.3,
+        duration: int | float = 0.3,
         /,
         w: list[str] = ["w"],
         a: list[str] = ["a"],
@@ -158,22 +161,22 @@ class Bot:
     ):
         self.__register_command(
             w,
-            functools.partial(self.__press_key, "w", seconds),
+            functools.partial(self.__press_key, "w", duration),
             cooldown,
         )
         self.__register_command(
             a,
-            functools.partial(self.__press_key, "a", seconds),
+            functools.partial(self.__press_key, "a", duration),
             cooldown,
         )
         self.__register_command(
             s,
-            functools.partial(self.__press_key, "s", seconds),
+            functools.partial(self.__press_key, "s", duration),
             cooldown,
         )
         self.__register_command(
             d,
-            functools.partial(self.__press_key, "d", seconds),
+            functools.partial(self.__press_key, "d", duration),
             cooldown,
         )
 
@@ -261,10 +264,12 @@ class Bot:
     async def __on_message(self, message: ChatMessage):
         print(f"{message.user.name}: {message.text}")
 
-    def __press_key(self, key: str | Key, duration: int | float | None, _: ChatCommand):
+    async def __press_key(
+        self, key: str | Key, duration: int | float | None, _: ChatCommand
+    ):
         self.controller.press_and_extend_key(key, duration)
 
-    def __move_mouse(self, x: int, y: int, _: ChatCommand):
+    async def __move_mouse(self, x: int, y: int, _: ChatCommand):
         self.controller.add_mouse_movement(x, y)
 
     def __register_command(

@@ -46,9 +46,19 @@ class Controller:
 
         self.key_end_times: dict[str | Key, float] = {}
         self.pressed: dict[str | Key, bool] = {}
-        self.queues: dict[str | Key, asyncio.Queue] = {}
 
-    async def toggle_pause(self):
+        self.pending_x = 0.0
+        self.pending_y = 0.0
+
+    async def start(self):
+        self.loop.create_task(self.__mouse_movement_loop())
+
+    async def stop(self):
+        print("STOP")
+        self.loop.stop()
+
+    def toggle_pause(self):
+        print("PAUSE")
         self.paused.set() if self.paused.is_set() else self.paused.clear()
 
     async def move_mouse(self, x: int, y: int, speed: int):
