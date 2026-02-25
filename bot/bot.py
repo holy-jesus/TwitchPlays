@@ -150,7 +150,6 @@ class Bot:
     def register_all_keys(
         self,
         duration: int | float = 0.3,
-        /,
         cooldown: int | float | None = None,
         **kwargs: dict[str, list[str]],
     ):
@@ -164,7 +163,6 @@ class Bot:
     def register_wasd(
         self,
         duration: int | float = 0.3,
-        /,
         cooldown: int | float | None = None,
         w: list[str] = ["w"],
         a: list[str] = ["a"],
@@ -196,7 +194,6 @@ class Bot:
         self,
         commands: str | list[str],
         direction: Direction,
-        /,
         amount: int = 100,
         cooldown: int | float | None = None,
     ):
