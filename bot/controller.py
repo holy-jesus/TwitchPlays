@@ -43,7 +43,7 @@ class Controller:
         self.ahk = AsyncAHK()
 
         self.ahk.add_hotkey(
-            Keys.SHIFT + Keys.BACKSPACE, self.stop, lambda x, e: print(x, e)
+            Keys.SHIFT.DOWN + Keys.BACKSPACE.DOWN, self.stop, lambda x, e: print(x, e)
         )
         self.ahk.add_hotkey("F12", self.toggle_pause, lambda x, e: print(x, e))
 
@@ -55,10 +55,11 @@ class Controller:
 
         self.consensus_trackers: dict[str, deque] = {}
 
-    async def start(self):
+    def start(self):
+        self.ahk.start_hotkeys()
         self.loop.create_task(self.__mouse_movement_loop())
 
-    async def stop(self):
+    def stop(self):
         print("STOP")
         self.loop.stop()
 

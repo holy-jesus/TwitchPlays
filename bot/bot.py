@@ -33,18 +33,33 @@ class FakeTwitch:
 
 
 class ActiveWindowMiddleware(BaseCommandMiddleware):
-    def __init__(self, ahk: AsyncAHK, process_name: str):
-        self.process_name = process_name
+    def __init__(
+        self, loop: asyncio.AbstractEventLoop, ahk: AsyncAHK, process_name: str
+    ):
+        self.loop = loop
         self.ahk = ahk
+        self.process_name = process_name
 
     async def can_execute(self, cmd: ChatCommand):
+        # Ёбанный TwitchAPI запускает Middleware в другом потоке и как следствие - в другом EventLoop
+        # Поэтому нужно использовать run_coroutine_threadsafe
+
         if self.process_name == "*":
             return True
-        active_window = await self.ahk.get_active_window()
-        if (
-            active_window
-            and await active_window.get_process_name() == self.process_name
-        ):
+        future = asyncio.run_coroutine_threadsafe(
+            self.ahk.get_active_window(), self.loop
+        )
+        active_window = await asyncio.wrap_future(future)
+
+        if not active_window:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            active_window.get_process_name(), self.loop
+        )
+        process_name = await asyncio.wrap_future(future)
+
+        if process_name == self.process_name:
             return True
         return False
 
@@ -78,7 +93,6 @@ class Bot:
         self,
         channel: str,
         process: str,
-        /,
         mouse_speed: int = 15,
         prefix: str = "!",
         cooldown: int = 0,
@@ -87,31 +101,33 @@ class Bot:
         self.channel = channel
         self.process = process
         self.cooldown = cooldown
+        self.prefix = prefix
 
         if loop is None:
             try:
                 loop = asyncio.get_running_loop()
+                print("Got running event loop")
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-
+                print("Created new event loop")
         self.loop = loop
-
         self.paused = asyncio.Event()
         self.controller = Controller(self.loop, self.paused, mouse_speed)
+        self.chat = Chat(FakeTwitch, callback_loop=self.loop)
 
-        self.chat = Chat(FakeTwitch)
-
-        self.chat.set_prefix(prefix)
+        self.chat.set_prefix(self.prefix)
 
         self.chat.register_command_middleware(
-            ActiveWindowMiddleware(self.controller.ahk, self.process)
+            ActiveWindowMiddleware(self.loop, self.controller.ahk, self.process)
         )
         self.chat.register_command_middleware(PausedMiddleware(self.paused))
 
         self.chat.register_event(ChatEvent.READY, self.__on_ready)
         self.chat.register_event(ChatEvent.JOINED, self.__on_joined)
         self.chat.register_event(ChatEvent.MESSAGE, self.__on_message)
+
+        self.__commands = []
 
     def run(self):
         try:
@@ -123,8 +139,10 @@ class Bot:
             self.loop.run_until_complete(self.stop())
 
     async def start(self):
-        await self.controller.start()
+        self.controller.start()
+
         await self.chat  # bruh
+
         self.chat.start()
 
     async def stop(self):
@@ -141,7 +159,7 @@ class Bot:
         ...etc
         """
         for number in range(0, 10):
-            self.__register_command(
+            self.__save_command(
                 str(number),
                 functools.partial(self.__press_key, str(number), duration),
                 cooldown,
@@ -154,7 +172,7 @@ class Bot:
         **kwargs: dict[str, list[str]],
     ):
         for key, commands in kwargs.items():
-            self.__register_command(
+            self.__save_command(
                 commands,
                 functools.partial(self.__press_key, key, duration),
                 cooldown,
@@ -169,22 +187,22 @@ class Bot:
         s: list[str] = ["s"],
         d: list[str] = ["d"],
     ):
-        self.__register_command(
+        self.__save_command(
             w,
             functools.partial(self.__press_key, "w", duration),
             cooldown,
         )
-        self.__register_command(
+        self.__save_command(
             a,
             functools.partial(self.__press_key, "a", duration),
             cooldown,
         )
-        self.__register_command(
+        self.__save_command(
             s,
             functools.partial(self.__press_key, "s", duration),
             cooldown,
         )
-        self.__register_command(
+        self.__save_command(
             d,
             functools.partial(self.__press_key, "d", duration),
             cooldown,
@@ -209,7 +227,7 @@ class Bot:
         elif direction == Direction.RIGHT:
             x = amount
             y = 0
-        self.__register_command(
+        self.__save_command(
             commands,
             functools.partial(self.__move_mouse, x, y),
             cooldown,
@@ -222,7 +240,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__register_command(
+        self.__save_command(
             commands, functools.partial(self.__press_key, key, duration), cooldown
         )
 
@@ -232,7 +250,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__register_command(
+        self.__save_command(
             commands, functools.partial(self.__press_key, Keys.LMB, duration), cooldown
         )
 
@@ -242,7 +260,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__register_command(
+        self.__save_command(
             commands, functools.partial(self.__press_key, Keys.RMB, duration), cooldown
         )
 
@@ -255,7 +273,7 @@ class Bot:
         duration: int | float | None = None,
         cooldown: int | float | None = None,
     ):
-        self.__register_command(
+        self.__save_command(
             commands,
             functools.partial(
                 self.__key_vote, key, required_votes, time_window, duration
@@ -293,7 +311,7 @@ class Bot:
     async def __move_mouse(self, x: int, y: int, _: ChatCommand):
         self.controller.add_mouse_movement(x, y)
 
-    def __register_command(
+    def __save_command(
         self, commands: str | list[str], func: Callable, cooldown: int | float | None
     ):
         """
@@ -306,7 +324,6 @@ class Bot:
         middlewares = []
         if cooldown or (cooldown is None and self.cooldown):
             middlewares.append(ChannelUserCommandCooldown(cooldown or self.cooldown))
-
         for command in commands:
             registered = self.chat.register_command(
                 command, func, command_middleware=middlewares
