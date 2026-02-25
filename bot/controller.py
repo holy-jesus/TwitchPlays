@@ -42,9 +42,7 @@ class Controller:
 
         self.ahk = AsyncAHK()
 
-        self.ahk.add_hotkey(
-            Keys.SHIFT.DOWN + Keys.BACKSPACE.DOWN, self.stop, lambda x, e: print(x, e)
-        )
+        self.ahk.add_hotkey("+BACKSPACE", self.stop, lambda x, e: print(x, e))
         self.ahk.add_hotkey("F12", self.toggle_pause, lambda x, e: print(x, e))
 
         self.key_end_times: dict[str | Key, float] = {}
