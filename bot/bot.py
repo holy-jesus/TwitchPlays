@@ -150,7 +150,7 @@ class Bot:
         self.loop.stop()
 
     def register_numbers(
-        self, duration: int | float = 0, /, cooldown: int | float | None = None
+        self, duration: int | float = 0, cooldown: int | float | None = None
     ):
         """
         Registers commands for numbers 0-9

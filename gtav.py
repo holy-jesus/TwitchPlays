@@ -13,13 +13,13 @@ bot.move_mouse(["k", "л"], direction=Direction.DOWN, amount=15, cooldown=1)
 bot.move_mouse(["j", "о"], direction=Direction.LEFT, amount=15, cooldown=1)
 bot.move_mouse(["l", "д"], direction=Direction.RIGHT, amount=15, cooldown=1)
 
-bot.press_key(["g", "п"], Keys.SPACE, 0.3)
-bot.press_key(["e", "у"], "e", 0.3)
+bot.press_key(["g", "п"], Keys.SPACE, duration=0)
+bot.press_key(["e", "у"], "e", duration=0)
 
 bot.key_vote(
     commands=["f", "а"],
     key="f",
-    required_votes=25,
+    required_votes=50,
     time_window=10,
     duration=1,
     cooldown=10,
