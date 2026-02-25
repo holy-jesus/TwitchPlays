@@ -5,10 +5,12 @@ from typing import Callable
 
 from aiohttp.helpers import sentinel
 from ahk import AsyncAHK
-from ahk.keys import Key, KEYS
+from ahk.keys import Key
 from twitchAPI.type import ChatEvent
 from twitchAPI.chat import Chat, EventData, ChatCommand
 from twitchAPI.chat.middleware import ChannelUserCommandCooldown, BaseCommandMiddleware
+
+from controller import Controller, Direction, Keys
 
 
 class FakeUser:
@@ -70,32 +72,13 @@ class OnlyModsMiddleware(BaseCommandMiddleware):
         pass
 
 
-class Keys(KEYS):
-    LMB = "left"
-    RMB = "right"
-    LEFT_MOUSE_BUTTON = LMB
-    RIGHT_MOUSE_BUTTON = RMB
-    LeftMouseButton = LMB
-    RightMouseButton = RMB
-
-
-class Direction:
-    UP = "up"
-    Up = UP
-    DOWN = "down"
-    Down = DOWN
-    LEFT = "left"
-    Left = LEFT
-    RIGHT = "right"
-    Right = RIGHT
-
-
 class Bot:
     def __init__(
         self,
         channel: str,
         process: str,
         /,
+        mouse_speed: int = 15,
         prefix: str = "!",
         cooldown: int = 6,
         loop: asyncio.AbstractEventLoop | None = None,
@@ -113,12 +96,10 @@ class Bot:
 
         self.loop = loop
 
-        self.ahk = AsyncAHK()
-        self.chat = Chat(FakeTwitch)
         self.paused = asyncio.Event()
+        self.controller = Controller(self.loop, self.paused, mouse_speed)
 
-        self.ahk.add_hotkey(Keys.SHIFT + Keys.BACKSPACE, self.stop)
-        self.ahk.add_hotkey("F12", self.toggle_pause)
+        self.chat = Chat(FakeTwitch)
 
         self.chat.set_prefix(prefix)
 
@@ -130,8 +111,6 @@ class Bot:
         self.chat.register_event(ChatEvent.READY, self.__on_ready)
         self.chat.register_event(ChatEvent.JOINED, self.__on_joined)
         self.chat.register_event(ChatEvent.MESSAGE, self.__on_message)
-
-        self.queues: dict[str, asyncio.Queue] = {}
 
     def run(self):
         try:
@@ -201,9 +180,8 @@ class Bot:
     def move_mouse(
         self,
         commands: list[str],
-        direction,
+        direction: Direction,
         amount: int = 25,
-        speed: int = 10,
         cooldown: int | float | None = None,
     ):
         if direction == Direction.UP:
@@ -220,7 +198,7 @@ class Bot:
             y = 0
         self.__register_command(
             commands,
-            functools.partial(self.__move_mouse, x, y, speed),
+            functools.partial(self.__move_mouse, x, y),
             cooldown,
         )
 
@@ -240,10 +218,8 @@ class Bot:
         commands: list[str],
         cooldown: int | float | None = None,
     ):
-        # TODO тут пока что cooldown ломает всё немного совсем чутьчуть
-        self.queues["left"] = asyncio.Queue()
         self.__register_command(
-            commands, functools.partial(self.__mouse_button, "left"), cooldown
+            commands, functools.partial(self.__press_key, Keys.LMB), cooldown
         )
 
     def right_mouse_button(
@@ -251,10 +227,8 @@ class Bot:
         commands: list[str],
         cooldown: int | float | None = None,
     ):
-        self.queues["right"] = asyncio.Queue()
-        self.loop.create_task(self.__mouse_button_loop("right"))
         self.__register_command(
-            commands, functools.partial(self.__mouse_button, "right"), cooldown
+            commands, functools.partial(self.__press_key, Keys.RMB), cooldown
         )
 
     async def __mouse_button_loop(self, button: str):
@@ -278,7 +252,7 @@ class Bot:
     # twitchAPI callbacks
 
     async def __on_ready(self, event: EventData):
-        print(f"Logged in as {self.chat.username}")
+        print(f"Successfully connected to Twitch")
         await self.chat.join_room(self.channel)
 
     async def __on_joined(self, event: EventData):
@@ -287,23 +261,11 @@ class Bot:
     async def __on_message(self, message: ChatMessage):
         print(f"{message.user.name}: {message.text}")
 
-    async def __mouse_button(self, button: str, _: ChatCommand):
-        self.queues[button].put_nowait(True)
+    def __press_key(self, key: str | Key, duration: int | float | None, _: ChatCommand):
+        self.controller.press_and_extend_key(key, duration)
 
-    async def __move_mouse(self, x: int, y: int, speed: int, _: ChatCommand):
-        await self.ahk.mouse_move(
-            x=x, y=y, speed=speed, blocking=False, relative=True, coord_mode="Relative"
-        )
-
-    async def __press_key(
-        self, key: Key | str, seconds: int | float | None, _: ChatCommand
-    ):
-        if not seconds:
-            await self.ahk.key_press(key, release=True, blocking=False)
-        else:
-            await self.ahk.key_down(key)
-            await asyncio.sleep(seconds)
-            await self.ahk.key_up(key)
+    def __move_mouse(self, x: int, y: int, _: ChatCommand):
+        self.controller.add_mouse_movement(x, y)
 
     def __register_command(
         self, commands: str | list[str], func: Callable, cooldown: int | float | None
